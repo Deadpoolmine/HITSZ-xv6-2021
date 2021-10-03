@@ -1,5 +1,11 @@
 {
     "files.associations": {
-        "user.h": "c"
+        "*.cjson": "jsonc",
+        "*.wxss": "css",
+        "*.wxs": "javascript",
+        "user.h": "c",
+        "types.h": "c",
+        "fs.h": "c",
+        "stat.h": "c"
     }
 }
