@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h"
 
 uint64
 sys_exit(void)
@@ -94,4 +95,41 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+//! Copy Mask 到进程的一个新的变量
+uint64
+sys_trace(void) {
+  int mask;
+  struct proc* p = myproc();
+
+  if(argint(0, &mask) < 0)
+    return -1;
+  
+  p->trace_mask = mask;
+
+  return 0;
+}
+
+extern uint64 kgetfree(void);
+extern uint64 getnproc(void);
+
+uint64
+sys_sysinfo(void) 
+{
+  struct proc* p = myproc();
+  uint64 addr_sysi;
+
+  struct sysinfo sysi;
+
+  if(argaddr(0, &addr_sysi) < 0)
+    return -1;
+  
+  sysi.freemem = kgetfree();
+  sysi.nproc   = getnproc();
+
+  if(copyout(p->pagetable, addr_sysi, (char *)&sysi, sizeof(sysi)) < 0) 
+    return -1;
+  
+  return 0;
 }
