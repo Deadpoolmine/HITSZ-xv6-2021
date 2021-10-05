@@ -1742,14 +1742,14 @@ manywrites(char *s)
       printf("fork failed\n");
       exit(1);
     }
-
+    // printf("%d, 1\n", getpid());
     if(pid == 0){
       char name[3];
       name[0] = 'b';
       name[1] = 'a' + ci;
       name[2] = '\0';
       unlink(name);
-      
+      // printf("%d, 2\n", getpid());
       for(int iters = 0; iters < howmany; iters++){
         for(int i = 0; i < ci+1; i++){
           int fd = open(name, O_CREATE | O_RDWR);
@@ -1757,13 +1757,16 @@ manywrites(char *s)
             printf("%s: cannot create %s\n", s, name);
             exit(1);
           }
+          // printf("%d, 3\n", getpid());
           int sz = sizeof(buf);
           int cc = write(fd, buf, sz);
+          // printf("%d, 4\n", getpid());
           if(cc != sz){
             printf("%s: write(%d) ret %d\n", s, sz, cc);
             exit(1);
           }
           close(fd);
+          printf("%d, 5\n", getpid());
         }
         unlink(name);
       }
