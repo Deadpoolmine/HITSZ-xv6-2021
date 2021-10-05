@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h" 
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -180,10 +182,15 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+    if((pte = walk(pagetable, a, 0)) == 0) {
+      // panic("uvmunmap: walk");
+      continue;
+    }
+    if((*pte & PTE_V) == 0) {
+      // printf("%s(): release lazy page\n", __func__);
+      // panic("uvmunmap: not mapped");
+      continue;
+    }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -283,7 +290,7 @@ freewalk(pagetable_t pagetable)
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
     } else if(pte & PTE_V){
-      panic("freewalk: leaf");
+      panic("freewalk: leaf");   /* //!在walk的过程中，会创造一些 pte | PTE_V， 可能 */
     }
   }
   kfree((void*)pagetable);
@@ -314,10 +321,16 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+    if((pte = walk(old, i, 0)) == 0) {
+      // panic("uvmcopy: pte should exist");
+      // printf("%s(): find lazy page\n", __func__);
+      continue;
+    }
+    if((*pte & PTE_V) == 0) {
+      // panic("uvmcopy: page not present");
+      // printf("%s(): copy lazy page\n", __func__);
+      continue;
+    }
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -347,7 +360,6 @@ uvmclear(pagetable_t pagetable, uint64 va)
     panic("uvmclear");
   *pte &= ~PTE_U;
 }
-
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
@@ -359,8 +371,37 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+    if(pa0 == 0) {
+      struct proc* p = myproc();
+      uint64 ustack = p->trapframe->sp;
+      char *mem;
+
+      if(va0 < ustack) {
+        printf("%s(): va below ustack\n", __func__);
+        return -1;
+      }
+      if(va0 >= p->sz) {
+        printf("%s(): va beyong sz\n", __func__);
+        return -1;
+      }
+
+      mem = kalloc();
+      if(mem == 0){
+        return -1;
+      }
+      else {
+        memset(mem, 0, PGSIZE);
+        if(mappages(pagetable, va0, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+          kfree(mem);
+          printf("%s() >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", __func__);
+          return -1;
+        }
+      }
+    }
+    pa0 = walkaddr(pagetable, va0);
+    if (pa0 == 0) {
       return -1;
+    }
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
@@ -384,8 +425,36 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+    if(pa0 == 0) {
+      struct proc* p = myproc();
+      uint64 ustack = p->trapframe->sp;
+      char *mem;
+
+      if(va0 < ustack) {      /* // !不应该杀死进程，这个函数是针对用户操作的，进程应该能够Handle这个问题，返回-1即可 */
+        printf("%s(): va below ustack\n", __func__);
+        return -1;
+      }
+      if(va0 >= p->sz) {
+        printf("%s(): va beyong sz\n", __func__);
+        return -1;
+      }
+
+      mem = kalloc();
+      if(mem == 0){
+        return -1;
+      }
+      else {
+        memset(mem, 0, PGSIZE);
+        if(mappages(pagetable, va0, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+          kfree(mem);
+          return -1;
+        }
+      }
+    }
+    pa0 = walkaddr(pagetable, va0);
+    if (pa0 == 0) {
       return -1;
+    }
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;

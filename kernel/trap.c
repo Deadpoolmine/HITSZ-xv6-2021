@@ -67,12 +67,46 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if(r_scause() == 13 || r_scause() == 15) {
+    // printf("%s(): page fault\n", __func__);
+    uint64 va = r_stval();
+    uint64 va_alg = PGROUNDDOWN(va);
+    struct proc* p = myproc();
+    uint64 ustack = p->trapframe->sp;
+    char *mem;
+
+    if(va < ustack) {
+      printf("%s(): va below ustack\n", __func__);
+      p->killed = 1;
+      goto exit;
+    }
+    if(va >= p->sz) {
+      printf("%s(): va beyong sz\n", __func__);
+      p->killed = 1;
+      goto exit;
+    }
+
+    mem = kalloc();
+    if(mem == 0){
+      p->killed = 1;
+      goto exit;
+    }
+    else {
+      memset(mem, 0, PGSIZE);
+      if(mappages(p->pagetable, va_alg, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+        kfree(mem);
+        p->killed = 1;
+        goto exit;
+      }
+    }
+
+  }
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
-
+exit:
   if(p->killed)
     exit(-1);
 
