@@ -158,7 +158,40 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   }
   return 0;
 }
+void
+vmprint_dot(int lvl) {
+  int i = 0;
+  for (i = 0; i < lvl; i++)
+  {
+    printf(" ..");
+  }
+}
 
+void
+vmprint_helper(pagetable_t pagetable, int lvl) {
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      vmprint_dot(lvl);
+      printf("%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+      lvl++;
+      vmprint_helper((pagetable_t)child, lvl);
+      lvl--;
+    } else if(pte & PTE_V){
+      vmprint_dot(lvl);
+      printf("%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+    }
+  }
+}
+
+void
+vmprint(pagetable_t pagetable) {
+  // there are 2^9 = 512 PTEs in a page table.
+  printf("page table %p\n", (void *)pagetable);
+  vmprint_helper(pagetable, 1);
+}
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
